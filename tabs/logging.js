@@ -1,0 +1,248 @@
+/*global nwdialog*/
+'use strict';
+
+TABS.logging = {};
+TABS.logging.initialize = function (callback) {
+    var self = this;
+
+    let loggingFileName = null;
+    let readyToWrite = false;
+
+    if (GUI.active_tab != 'logging') {
+        GUI.active_tab = 'logging';
+        googleAnalytics.sendAppView('Logging');
+    }
+
+    var requested_properties = [],
+        samples = 0,
+        requests = 0,
+        log_buffer = [];
+
+    if (CONFIGURATOR.connectionValid) {
+        var get_motor_data = function () {
+            MSP.send_message(MSPCodes.MSP_MOTOR, false, false, load_html);
+        }
+
+        var load_html = function () {
+            GUI.load("./tabs/logging.html", process_html);
+        }
+
+        MSP.send_message(MSPCodes.MSP_RC, false, false, get_motor_data);
+    }
+
+    function process_html() {
+        // translate to user-selected language
+        localize();
+
+        // UI hooks
+        $('a.log_file').click(prepare_file);
+
+        $('a.logging').click(function () {
+            if (GUI.connected_to) {
+                if (readyToWrite) {
+                    var clicks = $(this).data('clicks');
+
+                    if (!clicks) {
+                        // reset some variables before start
+                        samples = 0;
+                        requests = 0;
+                        log_buffer = [];
+                        requested_properties = [];
+
+                        $('.properties input:checked').each(function () {
+                            requested_properties.push($(this).prop('name'));
+                        });
+
+                        if (requested_properties.length) {
+                            // print header for the csv file
+                            print_head();
+
+                            var log_data_poll = function () {
+                                if (requests) {
+                                    // save current data (only after everything is initialized)
+                                    crunch_data();
+                                }
+
+                                // request new
+                                for (var i = 0; i < requested_properties.length; i++, requests++) {
+                                    MSP.send_message(MSPCodes[requested_properties[i]]);
+                                }
+                            }
+
+                            helper.interval.add('log_data_poll', log_data_poll, parseInt($('select.speed').val()), true); // refresh rate goes here
+                            const fs = require('fs');
+                            helper.interval.add('write_data', function write_data() {
+                                if (log_buffer.length && readyToWrite) { // only execute when there is actual data to write
+
+                                    fs.writeFileSync(loggingFileName, log_buffer.join('\n') + '\n', {
+                                        "flag": "a"
+                                    })
+
+                                    $('.samples').text(samples += log_buffer.length);
+
+                                    log_buffer = [];
+                                }
+                            }, 1000);
+
+                            $('.speed').prop('disabled', true);
+                            $(this).text(chrome.i18n.getMessage('loggingStop'));
+                            $(this).data("clicks", !clicks);
+                        } else {
+                            GUI.log(chrome.i18n.getMessage('loggingErrorOneProperty'));
+                        }
+                    } else {
+                        helper.interval.killAll(['global_data_refresh', 'msp-load-update']);
+                        helper.mspBalancedInterval.flush();
+
+                        $('.speed').prop('disabled', false);
+                        $(this).text(chrome.i18n.getMessage('loggingStart'));
+                        $(this).data("clicks", !clicks);
+                    }
+                } else {
+                    GUI.log(chrome.i18n.getMessage('loggingErrorLogFile'));
+                }
+            } else {
+                GUI.log(chrome.i18n.getMessage('loggingErrorNotConnected'));
+            }
+        });
+
+        GUI.content_ready(callback);
+    }
+
+    function print_head() {
+        var head = "timestamp";
+
+        for (var i = 0; i < requested_properties.length; i++) {
+            switch (requested_properties[i]) {
+                case 'MSP_RAW_IMU':
+                    head += ',' + 'gyroscopeX';
+                    head += ',' + 'gyroscopeY';
+                    head += ',' + 'gyroscopeZ';
+
+                    head += ',' + 'accelerometerX';
+                    head += ',' + 'accelerometerY';
+                    head += ',' + 'accelerometerZ';
+
+                    head += ',' + 'magnetometerX';
+                    head += ',' + 'magnetometerY';
+                    head += ',' + 'magnetometerZ';
+                    break;
+                case 'MSP_ATTITUDE':
+                    head += ',' + 'kinematicsX';
+                    head += ',' + 'kinematicsY';
+                    head += ',' + 'kinematicsZ';
+                    break;
+                case 'MSP_ALTITUDE':
+                    head += ',' + 'altitude';
+                    break;
+                case 'MSP_RAW_GPS':
+                    head += ',' + 'gpsFix';
+                    head += ',' + 'gpsNumSat';
+                    head += ',' + 'gpsLat';
+                    head += ',' + 'gpsLon';
+                    head += ',' + 'gpsAlt';
+                    head += ',' + 'gpsSpeed';
+                    head += ',' + 'gpsGroundCourse';
+                    break;
+                case 'MSP_ANALOG':
+                    head += ',' + 'voltage';
+                    head += ',' + 'amperage';
+                    head += ',' + 'mAhdrawn';
+                    head += ',' + 'rssi';
+                    break;
+                case 'MSP_RC':
+                    for (var chan = 0; chan < RC.active_channels; chan++) {
+                        head += ',' + 'RC' + chan;
+                    }
+                    break;
+                case 'MSP_MOTOR':
+                    for (var motor = 0; motor < MOTOR_DATA.length; motor++) {
+                        head += ',' + 'Motor' + motor;
+                    }
+                    break;
+                case 'MSP_DEBUG':
+                    for (var debug = 0; debug < SENSOR_DATA.debug.length; debug++) {
+                        head += ',' + 'Debug' + debug;
+                    }
+                    break;
+            }
+        }
+        log_buffer.push(head);
+    }
+
+    function crunch_data() {
+        var sample = millitime();
+
+        for (var i = 0; i < requested_properties.length; i++) {
+            switch (requested_properties[i]) {
+                case 'MSP_RAW_IMU':
+                    sample += ',' + SENSOR_DATA.gyroscope;
+                    sample += ',' + SENSOR_DATA.accelerometer;
+                    sample += ',' + SENSOR_DATA.magnetometer;
+                    break;
+                case 'MSP_ATTITUDE':
+                    sample += ',' + SENSOR_DATA.kinematics[0];
+                    sample += ',' + SENSOR_DATA.kinematics[1];
+                    sample += ',' + SENSOR_DATA.kinematics[2];
+                    break;
+                case 'MSP_ALTITUDE':
+                    sample += ',' + SENSOR_DATA.altitude;
+                    break;
+                case 'MSP_RAW_GPS':
+                    sample += ',' + GPS_DATA.fix;
+                    sample += ',' + GPS_DATA.numSat;
+                    sample += ',' + (GPS_DATA.lat / 10000000);
+                    sample += ',' + (GPS_DATA.lon / 10000000);
+                    sample += ',' + GPS_DATA.alt;
+                    sample += ',' + GPS_DATA.speed;
+                    sample += ',' + GPS_DATA.ground_course;
+                    break;
+                case 'MSP_ANALOG':
+                    sample += ',' + ANALOG.voltage;
+                    sample += ',' + ANALOG.amperage;
+                    sample += ',' + ANALOG.mAhdrawn;
+                    sample += ',' + ANALOG.rssi;
+                    break;
+                case 'MSP_RC':
+                    for (var chan = 0; chan < RC.active_channels; chan++) {
+                        sample += ',' + RC.channels[chan];
+                    }
+                    break;
+                case 'MSP_MOTOR':
+                    sample += ',' + MOTOR_DATA;
+                    break;
+                case 'MSP_DEBUG':
+                    sample += ',' + SENSOR_DATA.debug;
+                    break;
+            }
+        }
+
+        log_buffer.push(sample);
+    }
+
+    function prepare_file() {
+        // create or load the file
+
+        const date = new Date();
+        const filename = 'inav_data_log_' + date.getFullYear() + '-'  + zeroPad(date.getMonth() + 1, 2) + '-'
+                + zeroPad(date.getDate(), 2) + '_' + zeroPad(date.getHours(), 2) + zeroPad(date.getMinutes(), 2)
+                + zeroPad(date.getSeconds(), 2);
+        const accepts = [{
+            description: 'TXT files', extensions: ['txt'],
+        }];
+
+        nwdialog.setContext(document);
+        nwdialog.saveFileDialog(filename, accepts, '', function(file) {
+            loggingFileName = file;
+            readyToWrite = true;
+            chrome.storage.local.set({
+                    'logging_file_name': loggingFileName,
+                    'logging_file_ready': readyToWrite
+                });                
+        });
+    }
+};
+
+TABS.logging.cleanup = function (callback) {
+    if (callback) callback();
+};
