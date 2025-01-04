@@ -396,6 +396,7 @@ TABS.mission_control.initialize = function (callback) {
     // SkyLogix
     // marker manager extension
     var paintMarkers = [];     // Layer for "paint mode" marker
+    var isBrush = true;
     var isDrawingMode = true;
     var isDrawingLineNow = false;
     var markerVectorSource = new ol.source.Vector();
@@ -1807,6 +1808,11 @@ TABS.mission_control.initialize = function (callback) {
                 this.coordinate_ = evt.coordinate;
                 this.feature_ = feature;
                 this.layer_ = tempMarker;
+
+                //GUI.log(feature.get('property')['name']);
+                //GUI.log(feature.getId());
+                //GUI.log(feature.get('property')['description']);
+                //GUI.log(feature.get('property')['fontSize']);
             }
 
             return !!feature;
@@ -1826,13 +1832,16 @@ TABS.mission_control.initialize = function (callback) {
                 function (feature, layer) {
                     return feature;
                 });
-
+                
             var deltaX = evt.coordinate[0] - this.coordinate_[0];
             var deltaY = evt.coordinate[1] - this.coordinate_[1];
 
             var geometry = /** @type {ol.geom.SimpleGeometry} */
                 (this.feature_.getGeometry());
-            if (tempMarker.kind == "waypoint" || tempMarker.kind == "safehome" || tempMarker.kind == "home") {
+
+            if (tempMarker.kind == "waypoint" || tempMarker.kind == "safehome" || tempMarker.kind == "home" ||
+                // SkyLogix
+                this.feature_.get('property')['kind'] == 'freeline' || this.feature_.get('property')['kind'] == 'drawMarker') {
                 geometry.translate(deltaX, deltaY);
                 this.coordinate_[0] = evt.coordinate[0];
                 this.coordinate_[1] = evt.coordinate[1];
@@ -2015,6 +2024,7 @@ TABS.mission_control.initialize = function (callback) {
 
         // SkyLogix
         map.addLayer(markerVectorLayer); // adding custom marker layer
+        map.getViewport().style.cursor = 'crosshair';
 
         //////////////////////////////////////////////////////////////////////////
         // Set the attribute link to open on an external browser window, so
@@ -2049,43 +2059,32 @@ TABS.mission_control.initialize = function (callback) {
         // Map on click event for drawing Mode
 
         map.on('pointermove', function (evt) {
-            if (!isDrawingMode || !isDrawingLineNow) return;
+            if (!isDrawingMode || !isBrush || !isDrawingLineNow) return;
             markerManager.continueDrawingLine(evt.coordinate);
             //refreshPaintMarkers();
         });
 
         map.on('pointerdown', function (evt) {
-            if (!isDrawingMode) return;
+            if (!isDrawingMode || !isBrush) return;
 
-            let Marker;
             const coord = evt.coordinate;
             evt.preventDefault(); // отключаем стандартное поведение карты
 
-            if (evt.originalEvent.button === 2) { // Проверка на правую кнопку мыши (RMB)
-                isDrawingLineNow = true;
-                Marker = markerManager.startDrawingLine({
-                    coord: coord,
-                    color: 'black',
-                    width: 2,
-                    description: 'Описание линии',
-                    //lineDash: [5, 5], // Другая пунктирная линия
-                });
-            }
-            else {
-                Marker = markerManager.createTextMarker({
-                    coord: coord,
-                    name: '?',
-                    description: 'Описание маркера',
-                    color: 'blue',
-                    fontSize: 16,
-                });
-            }
-            GUI.log(Marker.get('property')['color']);
-            GUI.log(Marker.get('property')['name']);
-            GUI.log(Marker.getId());
-            GUI.log(Marker.get('property')['description']);
-            GUI.log(Marker.get('property')['fontSize']);
-            paintMarkers.push(Marker);
+            isDrawingLineNow = true;
+            let Line = markerManager.startDrawingLine({
+                coord: coord,
+                color: 'black',
+                width: 2,
+                description: 'Описание линии',
+                kind: 'freeline',
+                //lineDash: [5, 5], // Другая пунктирная линия
+            });
+
+            //if (evt.originalEvent.button === 2) { // Проверка на правую кнопку мыши (RMB)
+
+            //}
+
+            paintMarkers.push(Line);
             refreshPaintMarkers();
         });
 
@@ -2101,7 +2100,29 @@ TABS.mission_control.initialize = function (callback) {
         //////////////////////////////////////////////////////////////////////////
         map.on('click', function (evt) {
             var tempSelectedMarkerIndex = null;
-            if (isDrawingMode) return; // SkyLogix
+
+            if (isDrawingMode) {
+                const coord = evt.coordinate;
+                let Marker = markerManager.createTextMarker({
+                    coord: coord,
+                    name: '?',
+                    description: 'Описание маркера',
+                    color: 'blue',
+                    fontSize: 16,
+                    kind: 'drawMarker',
+                });
+
+                //GUI.log(Marker.get('property')['color']);
+                //GUI.log(Marker.get('property')['name']);
+                //GUI.log(Marker.getId());
+                //GUI.log(Marker.get('property')['description']);
+                //GUI.log(Marker.get('property')['fontSize']);
+
+                paintMarkers.push(Marker);
+                refreshPaintMarkers();
+                return;
+            }
+
             if (selectedMarker != null && selectedFeature != null) {
                 tempSelectedMarkerIndex = selectedMarker.getLayerNumber();
                 try {
@@ -3171,9 +3192,33 @@ TABS.mission_control.initialize = function (callback) {
             else {
                 $(this).attr('style', 'background-color: #66ff66;');
             }
+
             map.getViewport().style.cursor = isDrawingMode ? 'crosshair' : 'default';
 
             GUI.log(`Drawing Mode is now: ${isDrawingMode}`);
+        });
+
+        // SkyLogix
+        /////////////////////////////////////////////
+        // Callback for Brush
+        /////////////////////////////////////////////
+        $('#toggleBrushButton').on('click', function () {
+            // drawing button
+            isBrush = !isBrush;
+
+            if (isBrush) {
+                isDrawingMode = true;
+
+                $(this).attr('style', 'background-color: #ff6666;');
+                $('#toggleDrawingModeButton').attr('style', 'background-color: #ff6666;');
+
+                map.getViewport().style.cursor = 'crosshair';
+
+                GUI.log(`Drawing Mode is now: ${isDrawingMode}`);
+            }
+            else {
+                $(this).attr('style', 'background-color: #66ff66;');
+            }
         });
 
         // SkyLogix

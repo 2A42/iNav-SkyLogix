@@ -1,0 +1,1 @@
+C:\Programs\Projects\inav-configurator-7.1.2\obj\Debug\iNavSkyLogix.esproj.CoreCompileInputs.cache

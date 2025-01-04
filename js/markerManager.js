@@ -35,7 +35,7 @@ class MarkerManager {
                     params.coord = coords;
 
                     if (params.iconUrl) {
-                        newMarker = this.createIconMarker(coords, params.iconUrl, params.name, params.description, params.scale);
+                        //newMarker = this.createIconMarker(coords, params.iconUrl, params.name, params.description, params.scale);
                     }
                     else {
                         newMarker = this.createTextMarker(params);
