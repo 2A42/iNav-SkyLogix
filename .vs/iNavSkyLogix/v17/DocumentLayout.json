@@ -48,7 +48,7 @@
               "RelativeDocumentMoniker": "tabs\\mission_control.html",
               "ToolTip": "C:\\Programs\\Projects\\inav-configurator-7.1.2\\tabs\\mission_control.html",
               "RelativeToolTip": "tabs\\mission_control.html",
-              "ViewState": "AQIAABEAAAAAAAAAAAAIwCMAAABUAAAA",
+              "ViewState": "AQIAANMBAAAAAAAAAAAAAN4BAAAfAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001512|",
               "WhenOpened": "2025-01-04T10:04:25.715Z",
               "EditorCaption": ""
@@ -59,9 +59,9 @@
               "Title": "mission_control.js",
               "DocumentMoniker": "C:\\Programs\\Projects\\inav-configurator-7.1.2\\tabs\\mission_control.js",
               "RelativeDocumentMoniker": "tabs\\mission_control.js",
-              "ToolTip": "C:\\Programs\\Projects\\inav-configurator-7.1.2\\tabs\\mission_control.js",
-              "RelativeToolTip": "tabs\\mission_control.js",
-              "ViewState": "AQIAAD8LAAAAAAAAAAAwwEoLAAAAAAAA",
+              "ToolTip": "C:\\Programs\\Projects\\inav-configurator-7.1.2\\tabs\\mission_control.js*",
+              "RelativeToolTip": "tabs\\mission_control.js*",
+              "ViewState": "AQIAAL4PAAAAAAAAAAAiwPoPAAANAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
               "WhenOpened": "2024-12-09T07:00:18.946Z",
               "EditorCaption": ""
@@ -74,7 +74,7 @@
               "RelativeDocumentMoniker": "js\\markerManager.js",
               "ToolTip": "C:\\Programs\\Projects\\inav-configurator-7.1.2\\js\\markerManager.js",
               "RelativeToolTip": "js\\markerManager.js",
-              "ViewState": "AQIAAG8AAAAAAAAAAAAAANMAAAAyAAAA",
+              "ViewState": "AQIAAAAAAAAAAAAAAAAAABsBAAAAAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
               "WhenOpened": "2024-12-09T10:16:10.184Z",
               "EditorCaption": ""
@@ -89,7 +89,8 @@
               "RelativeToolTip": "gulpfile.js",
               "ViewState": "AQIAADUAAAAAAAAAAAAAADwAAAAoAAAA",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
-              "WhenOpened": "2024-12-09T10:22:18.174Z"
+              "WhenOpened": "2024-12-09T10:22:18.174Z",
+              "EditorCaption": ""
             }
           ]
         }
