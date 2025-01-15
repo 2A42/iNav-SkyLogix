@@ -395,15 +395,41 @@ TABS.mission_control.initialize = function (callback) {
 
     // SkyLogix
     // marker manager extension
-    var paintMarkers = [];     // Layer for "paint mode" marker
-    var isBrush = true;
-    var isDrawingMode = true;
-    var isDrawingLineNow = false;
+    //var paintMarkers = [];     // Layer for "paint mode" marker
     var markerVectorSource = new ol.source.Vector();
     var markerVectorLayer = new ol.layer.Vector({
         source: markerVectorSource,
     });
-    const markerManager = new MarkerManager(markerVectorSource);
+    var savedInteractions = [];
+
+    // Toolbar
+    //var toolBar = ['#toggleDrawingModeButton', '#toggleBrushButton', '#togglePolyButton', '#editPolyButton'];
+    //var state.isBrush = true;
+    //var state.isPolygon = false;
+    //var isMeasureTool = false;
+    //var state.isEditPolygon = false;
+    //var state.isDrawingMode = true;
+    //var state.isDrawingLineNow = false;
+
+    var state = {
+        isBrush: false,
+        isPolygon: false,
+        isMeasureTool: false,
+        isEditPolygon: false,
+        isDrawingMode: false,
+        isDrawingLineNow: false
+    };
+
+    // Создаем объект с ключами из toolBar и значениями из state
+    var toolBar = {
+        '#toggleDrawingModeButton': 'isDrawingMode',
+        '#toggleBrushButton': 'isBrush',
+        '#togglePolyButton': 'isPolygon',
+        '#editPolyButton': 'isEditPolygon',
+    };
+
+    /** @type {MarkerManager} */
+    var markerManagerObject;
 
     var map;
 
@@ -1140,15 +1166,47 @@ TABS.mission_control.initialize = function (callback) {
     /////////////////////////////////////////////
 
     // SkyLogix
+    function manageToolBar(button) {
+        try {
+            for (var key in toolBar) {
+                $(key).attr('style', 'background-color: #66ff66;');
+                state[toolBar[key]] = false;
+            }
+
+            if (toolBar.hasOwnProperty(button)) {
+
+                state[toolBar[button]] = true;
+                $(button).attr('style', 'background-color: #ff6666;');
+
+                state.isDrawingMode = true;
+                $('#toggleDrawingModeButton').attr('style', 'background-color: #ff6666;');
+            }
+
+            MarkerManager.getCurrentPoly().cancelDrawing();
+
+            removeInteractions();
+            savedInteractions.forEach(interaction => {
+                map.addInteraction(interaction);
+            });
+            //GUI.log(button + ': ' + toolBar[button]);
+
+        } catch (e) {
+            GUI.log(e);
+        }
+    }
+
     function removeAllWaypoints() {
-        if (isDrawingMode) {
-            paintMarkers = [];
+        if (state.isDrawingMode) {
+            //paintMarkers = [];
             map.removeLayer(markerVectorLayer);
             markerVectorSource = new ol.source.Vector();
             markerVectorLayer = new ol.layer.Vector({
                 source: markerVectorSource,
             });
+            map.getOverlays().clear();
             map.addLayer(markerVectorLayer);
+            markerManagerObject = new MarkerManager(map, markerVectorLayer);
+            manageToolBar('');
         }
         else {
             mission.reinit();
@@ -1383,13 +1441,22 @@ TABS.mission_control.initialize = function (callback) {
     }
 
     // SkyLogix
-    function refreshPaintMarkers() {
-        paintMarkers.forEach(function (elem) {
-            if (!markerVectorSource.getFeatureById(elem.getId()))
-                markerVectorSource.addFeature(elem);
+    //function refreshPaintMarkers() {
+    //    paintMarkers.forEach(function (elem) {
+    //        if (!markerVectorSource.getFeatureById(elem.getId()))
+    //            markerVectorSource.addFeature(elem);
+    //    }
+    //    );
+    //    //paintMarkers = [];
+    //}
+
+    // SkyLogix
+    function removeInteractions () {
+        let extra_interactions = map.getInteractions().getArray().slice(9);
+        let len = extra_interactions.length;
+        for (let i in extra_interactions) {
+            map.removeInteraction(extra_interactions[i]);
         }
-        );
-        //paintMarkers = [];
     }
 
     function refreshLayers() {
@@ -1839,9 +1906,15 @@ TABS.mission_control.initialize = function (callback) {
             var geometry = /** @type {ol.geom.SimpleGeometry} */
                 (this.feature_.getGeometry());
 
+            //geometry.translate(deltaX, deltaY);
+            //this.coordinate_[0] = evt.coordinate[0];
+            //this.coordinate_[1] = evt.coordinate[1];
+            
             if (tempMarker.kind == "waypoint" || tempMarker.kind == "safehome" || tempMarker.kind == "home" ||
                 // SkyLogix
-                this.feature_.get('property')['kind'] == 'freeline' || this.feature_.get('property')['kind'] == 'drawMarker') {
+                geometry.getType() == 'Polygon' || this.feature_.get('property')['kind'] == 'freeline' || this.feature_.get('property')['kind'] == 'drawMarker') {
+
+                GUI.log(geometry.getType());
                 geometry.translate(deltaX, deltaY);
                 this.coordinate_[0] = evt.coordinate[0];
                 this.coordinate_[1] = evt.coordinate[1];
@@ -2025,6 +2098,15 @@ TABS.mission_control.initialize = function (callback) {
         // SkyLogix
         map.addLayer(markerVectorLayer); // adding custom marker layer
         map.getViewport().style.cursor = 'crosshair';
+        markerManagerObject = new MarkerManager(map, markerVectorLayer);
+        for (var key in toolBar) if(!toolbar[key]) $(key).attr('style', 'background-color: #66ff66;');
+        
+
+        map.getInteractions().getArray().forEach((interaction, i) => {
+            if (i > 8) {
+                savedInteractions.push(interaction);
+            }
+        });
 
         //////////////////////////////////////////////////////////////////////////
         // Set the attribute link to open on an external browser window, so
@@ -2059,19 +2141,19 @@ TABS.mission_control.initialize = function (callback) {
         // Map on click event for drawing Mode
 
         map.on('pointermove', function (evt) {
-            if (!isDrawingMode || !isBrush || !isDrawingLineNow) return;
-            markerManager.continueDrawingLine(evt.coordinate);
+            if (!state.isDrawingMode || !state.isBrush || !state.isDrawingLineNow) return;
+            markerManagerObject.continueDrawingLine(evt.coordinate);
             //refreshPaintMarkers();
         });
 
         map.on('pointerdown', function (evt) {
-            if (!isDrawingMode || !isBrush) return;
+            if (!state.isDrawingMode || !state.isBrush) return;
 
             const coord = evt.coordinate;
             evt.preventDefault(); // отключаем стандартное поведение карты
 
-            isDrawingLineNow = true;
-            let Line = markerManager.startDrawingLine({
+            state.isDrawingLineNow = true;
+            let Line = markerManagerObject.startDrawingLine({
                 coord: coord,
                 color: 'black',
                 width: 2,
@@ -2084,15 +2166,15 @@ TABS.mission_control.initialize = function (callback) {
 
             //}
 
-            paintMarkers.push(Line);
-            refreshPaintMarkers();
+            //paintMarkers.push(Line);
+            //refreshPaintMarkers();
         });
 
         map.on('pointerup', function (evt) {
-            if (!isDrawingMode || !isDrawingLineNow) return;
-            isDrawingLineNow = false;
-            markerManager.stopDrawingLine();
-            refreshPaintMarkers();
+            if (!state.isDrawingMode || !state.isDrawingLineNow) return;
+            state.isDrawingLineNow = false;
+            markerManagerObject.stopDrawingLine();
+            //refreshPaintMarkers();
         });
 
         //////////////////////////////////////////////////////////////////////////
@@ -2101,9 +2183,10 @@ TABS.mission_control.initialize = function (callback) {
         map.on('click', function (evt) {
             var tempSelectedMarkerIndex = null;
 
-            if (isDrawingMode) {
+            if (state.isEditPolygon) return;
+            if (state.isDrawingMode) {
                 const coord = evt.coordinate;
-                let Marker = markerManager.createTextMarker({
+                let Marker = markerManagerObject.createTextMarker({
                     coord: coord,
                     name: '?',
                     description: 'Описание маркера',
@@ -2118,8 +2201,8 @@ TABS.mission_control.initialize = function (callback) {
                 //GUI.log(Marker.get('property')['description']);
                 //GUI.log(Marker.get('property')['fontSize']);
 
-                paintMarkers.push(Marker);
-                refreshPaintMarkers();
+                //paintMarkers.push(Marker);
+                //refreshPaintMarkers();
                 return;
             }
 
@@ -3127,7 +3210,7 @@ TABS.mission_control.initialize = function (callback) {
         // Callback for Remove buttons
         /////////////////////////////////////////////
         $('#removeAllPoints').on('click', function () {
-            if ((isDrawingMode || markers.length) && confirm(chrome.i18n.getMessage('confirm_delete_all_points'))) {
+            if ((state.isDrawingMode || markers.length) && confirm(chrome.i18n.getMessage('confirm_delete_all_points'))) {
                 if (removeAllMultiMissionCheck()) {
                     removeAllWaypoints();
                     updateMultimissionState();
@@ -3184,18 +3267,18 @@ TABS.mission_control.initialize = function (callback) {
         /////////////////////////////////////////////
         $('#toggleDrawingModeButton').on('click', function () {
             // drawing button
-            isDrawingMode = !isDrawingMode;
+            state.isDrawingMode = !state.isDrawingMode;
 
-            if (isDrawingMode) {
+            if (state.isDrawingMode) {
                 $(this).attr('style', 'background-color: #ff6666;');
             }
             else {
                 $(this).attr('style', 'background-color: #66ff66;');
             }
 
-            map.getViewport().style.cursor = isDrawingMode ? 'crosshair' : 'default';
+            map.getViewport().style.cursor = state.isDrawingMode ? 'crosshair' : 'default';
 
-            GUI.log(`Drawing Mode is now: ${isDrawingMode}`);
+            GUI.log(`Drawing Mode is now: ${state.isDrawingMode}`);
         });
 
         // SkyLogix
@@ -3204,20 +3287,120 @@ TABS.mission_control.initialize = function (callback) {
         /////////////////////////////////////////////
         $('#toggleBrushButton').on('click', function () {
             // drawing button
-            isBrush = !isBrush;
+            state.isBrush = !state.isBrush;
 
-            if (isBrush) {
-                isDrawingMode = true;
+            if (state.isBrush) {
+                //state.isDrawingMode = true;
 
-                $(this).attr('style', 'background-color: #ff6666;');
-                $('#toggleDrawingModeButton').attr('style', 'background-color: #ff6666;');
+                //$(this).attr('style', 'background-color: #ff6666;');
+                //$('#toggleDrawingModeButton').attr('style', 'background-color: #ff6666;');
+                manageToolBar('#toggleBrushButton');
 
                 map.getViewport().style.cursor = 'crosshair';
 
-                GUI.log(`Drawing Mode is now: ${isDrawingMode}`);
+                GUI.log(`Drawing Mode is now: ${state.isDrawingMode}`);
             }
             else {
                 $(this).attr('style', 'background-color: #66ff66;');
+            }
+        });
+
+        $('#togglePolyButton').on('click', function () {
+
+            state.isPolygon = !state.isPolygon;
+
+            if (state.isPolygon) {
+                //state.isBrush = false;
+                //state.isDrawingMode = true;
+
+                manageToolBar('#togglePolyButton');
+                removeInteractions();
+                //$(this).attr('style', 'background-color: #ff6666;');
+                //$('#toggleDrawingModeButton').attr('style', 'background-color: #ff6666;');
+
+                //Remove map interactions except default interactions
+                //let geomType = "LineString";
+                let geomType = "Polygon";
+                markerManagerObject.createPoly(geomType);
+            }
+            else {
+                $(this).attr('style', 'background-color: #66ff66;');
+
+                MarkerManager.getCurrentPoly().cancelDrawing();
+
+                removeInteractions();
+                savedInteractions.forEach(interaction => {
+                    map.addInteraction(interaction);
+                });
+            }
+        });
+
+        $('#editPolyButton').on('click', function (e) {
+
+            state.isEditPolygon = !state.isEditPolygon;
+
+            if (state.isEditPolygon) {
+                
+                //$(this).attr('style', 'background-color: #ff6666;');
+                //$('#toggleDrawingModeButton').attr('style', 'background-color: #ff6666;');
+                manageToolBar('#editPolyButton');
+                                // Defining Dynamic Styles
+                let dynamicStyle = {
+                  'Point': new ol.style.Style({
+                    image: new ol.style.Circle({
+                      radius: 10,
+                      fill: new ol.style.Fill({
+                        color: [247, 5, 25, 1],
+                      }),
+                      stroke: new ol.style.Stroke({
+                        color: [5, 74, 247, 1],
+                        width: 5
+                      })
+                    })
+                  }),
+                  'LineString': new ol.style.Style({
+                    stroke: new ol.style.Stroke({
+                      color: [191, 17, 183, 1],
+                      width: 10
+                    })
+                  }),
+                  'Polygon': new ol.style.Style({
+                    // Line and Polygon Style
+                    stroke: new ol.style.Stroke({
+                      color: [255, 204, 0, 1],
+                      width: 10
+                    }),
+                    fill: new ol.style.Fill({
+                      color: [255, 0, 51, 0.4]
+                    })
+                  })
+                }
+                                //Remove previous interactions
+                removeInteractions();
+
+                //Select Features
+                let select = new ol.interaction.Select({
+                    layers: [markerVectorLayer],
+                    style: (e) => {
+                        return dynamicStyle[e.getGeometry().getType()];
+                    }
+                });
+
+                //Add Modify Control to map
+                let modify = new ol.interaction.Modify({
+                    features: select.getFeatures()
+                });
+
+                map.addInteraction(select);
+                map.addInteraction(modify);
+            }
+            else {
+                $(this).attr('style', 'background-color: #66ff66;');
+
+                removeInteractions();
+                savedInteractions.forEach(interaction => {
+                    map.addInteraction(interaction);
+                });
             }
         });
 
@@ -3227,10 +3410,10 @@ TABS.mission_control.initialize = function (callback) {
         /////////////////////////////////////////////
         $('#loadFileMissionButton').on('click', function () {
             nwdialog.setContext(document);
-            if (isDrawingMode) {
+            if (state.isDrawingMode) {
 
                 nwdialog.openFileDialog('.json', function (result) {
-                    markerManager.loadMarkersFile(paintMarkers, result);
+                    markerManagerObject.loadMarkersFile(/*paintMarkers, */result);
                     //refreshPaintMarkers();
                 })
                 return;
@@ -3247,8 +3430,8 @@ TABS.mission_control.initialize = function (callback) {
         $('#saveFileMissionButton').on('click', function () {
             nwdialog.setContext(document);
 
-            if (isDrawingMode) nwdialog.saveFileDialog('Drawing Markers file', '.json', function (result) {
-                markerManager.saveMarkersFile(paintMarkers, result);
+            if (state.isDrawingMode) nwdialog.saveFileDialog('Drawing Markers file', '.json', function (result) {
+                markerManagerObject.saveMarkersFile(/*paintMarkers, */result);
                 GUI.log('Markers saved');
             })
 

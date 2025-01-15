@@ -59,6 +59,7 @@ sources.css = [
 
 sources.js = [
     './js/markerManager.js', // SkyLogix
+    './node_modules/jsts/dist/jsts.min.js', // SkyLogix (JSTS)
     './js/libraries/google-analytics-bundle.js',
     './node_modules/jquery/dist/jquery.min.js',
     './node_modules/jquery-ui-npm/jquery-ui.min.js',

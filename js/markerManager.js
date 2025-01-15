@@ -2,16 +2,30 @@
 const fs = require('fs');
 
 class MarkerManager {
-    constructor(vectorSource) {
-        this.vectorSource = vectorSource; // Векторный источник для всех маркеров
+    constructor(map, vectorLayer) {
+        this.map = map;
+        this.vectorLayer = vectorLayer;
+        this.paintMarkers = [];
 
-        this.isDrawing = false; // Флаг для отслеживания состояния рисования
-        this.currentLine = null; // Хранение текущей линии
+        this.isDrawing = false;
+        this.currentLine = null;
         this.lineStyle = null;
         this.markerStyle = null;
     }
 
-    loadMarkersFile(paintMarkers, filename) {
+    static currentPoly;
+    static getCurrentPoly() {
+        return this.currentPoly;
+    }
+    static setCurrentPoly(poly) {
+        this.currentPoly = poly;
+    }
+    createPoly(type) {
+        let poly = new Polygon(type, this.map, this.vectorLayer, this.paintMarkers);
+        setCurrentPoly(poly);
+    }
+
+    loadMarkersFile(/*paintMarkers, */filename) {
         fs.readFile(filename, 'utf8', (err, data) => {
 
             const parsedData = JSON.parse(data);
@@ -21,11 +35,11 @@ class MarkerManager {
 
             parsedData.features.forEach(feature => {
                 // Пропуск маркеров с существующими ID
-                const existingMarker = paintMarkers.find(marker => marker.getId() === feature.id);
-                if (existingMarker) {
-                    //console.log(`Маркер с ID ${feature.id} уже существует, пропускаем.`);
-                    return;
-                }
+                //const existingMarker = this.paintMarkers.find(marker => marker.getId() === feature.id);
+                //if (existingMarker) {
+                //    //console.log(`Маркер с ID ${feature.id} уже существует, пропускаем.`);
+                //    return;
+                //}
 
                 let newMarker;
                 const params = feature.properties || {};
@@ -54,15 +68,39 @@ class MarkerManager {
                     this.stopDrawingLine();
                 }
 
+                else if (feature.type === 'Polygon') {
+                    const coords = feature.coordinates.map(ring =>
+                        ring.map(coord => ol.proj.fromLonLat([coord.lon, coord.lat]))
+                    );
+
+                    let poly = new Polygon(feature.type, this.map, this.vectorLayer, this.paintMarkers, coords[0]);
+                    MarkerManager.setCurrentPoly(poly);
+
+                    //newMarker = new ol.Feature({
+                    //    geometry: new ol.geom.Polygon(coords),
+                    //    property: params,
+                    //});
+                    //this.vectorLayer.getSource().addFeature(newMarker);
+
+                    //polygonFeature.setId(feature.id);
+
+                    //this.paintMarkers.push(polygonFeature);
+
+                    // Пересчёт оверлеев
+                    //const polyInstance = new Polygon('Polygon', this.map, this.vectorLayer, this.paintMarkers);
+                    //polyInstance.recalculateOverlays(newMarker);
+                }
+
                 if (newMarker) {
                     newMarker.setId(feature.id); // Восстановление ID из файла
-                    paintMarkers.push(newMarker); // Добавление в текущий список маркеров
+                    this.paintMarkers.push(newMarker); // Добавление в текущий список маркеров
+                    //this.vectorLayer.getSource().addFeature(newMarker);
                 }
             });
         });
     }
 
-    saveMarkersFile(paintMarkers, filename) {
+    saveMarkersFile(/*paintMarkers, */filename) {
 
         // Создаем объект данных
         const data = {
@@ -78,35 +116,45 @@ class MarkerManager {
         };
 
         // Проходим по всем объектам paintMarkers
-        paintMarkers.forEach(marker => {
+        this.paintMarkers.forEach(marker => {
+
+            let coords;
             const geometry = marker.getGeometry();
+
             if (geometry.getType() === 'Point') { // Текстовый маркер
-                const coords = ol.proj.toLonLat(geometry.getCoordinates());
-                data.features.push({
-                    type: geometry.getType(),
-                    coordinates: {
-                        lon: Math.round(coords[0] * 10000000) / 10000000,
-                        lat: Math.round(coords[1] * 10000000) / 10000000
-                    },
-                    id: marker.getId(),
-                    properties: marker.get('property') //marker.getProperties()
-                });
+                const [lon, lat] = ol.proj.toLonLat(geometry.getCoordinates());
+                coords = {
+                    lon: Math.round(lon * 10000000) / 10000000,
+                    lat: Math.round(lat * 10000000) / 10000000
+                };
             }
             else if (geometry.getType() === 'LineString') { // Линия
-                const coords = geometry.getCoordinates().map(coord => {
+                coords = geometry.getCoordinates().map(coord => {
                     const [lon, lat] = ol.proj.toLonLat(coord);
                     return {
                         lon: Math.round(lon * 10000000) / 10000000,
                         lat: Math.round(lat * 10000000) / 10000000
                     };
                 });
-                data.features.push({
-                    type: geometry.getType(),
-                    coordinates: coords,
-                    id: marker.getId(),
-                    properties: marker.get('property') //marker.getProperties()
-                });
             }
+            else if (geometry.getType() === 'Polygon') {
+                coords = geometry.getCoordinates().map(ring =>
+                    ring.map(coord => {
+                        const [lon, lat] = ol.proj.toLonLat(coord);
+                        return {
+                            lon: Math.round(lon * 10000000) / 10000000,
+                            lat: Math.round(lat * 10000000) / 10000000
+                        };
+                    })
+                );
+            }
+
+            data.features.push({
+                type: geometry.getType(),
+                coordinates: coords,
+                id: marker.getId(),
+                properties: marker.get('property') //marker.getProperties()
+            });
         });
 
         // Сохранение в файл
@@ -160,6 +208,8 @@ class MarkerManager {
         this.setMarkerStyle(params);
         marker.setStyle(this.markerStyle);
         marker.setId(`marker-${Date.now()}`); // ID на основе времени
+        this.paintMarkers.push(marker);
+        this.vectorLayer.getSource().addFeature(marker);
         // this.vectorSource.addFeature(marker);
         return marker;
     }
@@ -211,6 +261,9 @@ class MarkerManager {
         this.setLineStyle(params);
         this.currentLine.setStyle(this.lineStyle);
         this.currentLine.setId(`freeline-${Date.now()}`); // ID на основе времени
+        this.paintMarkers.push(this.currentLine);
+        this.vectorLayer.getSource().addFeature(this.currentLine);
+
         return this.currentLine;
     }
 
@@ -223,6 +276,7 @@ class MarkerManager {
 
         const geometry = this.currentLine.getGeometry();
         geometry.appendCoordinate(coordinate);
+        this.vectorLayer.getSource().addFeature(this.currentLine);
     }
 
     /**
@@ -281,3 +335,212 @@ class MarkerManager {
         }
     }
 }
+
+class Overlay {
+    constructor(map, element = document.getElementById("popup"), offset = [0, -15], positioning = 'bottom-center', className = 'ol-tooltip-measure ol-tooltip .ol-tooltip-static') {
+        this.map = map;
+        this.overlay = new ol.Overlay({
+            element: element,
+            offset: offset,
+            positioning: positioning,
+            className: className
+        });
+        this.overlay.setPosition([0, 0]);
+        this.overlay.element.style.display = 'block';
+        this.map.addOverlay(this.overlay);
+    }
+}
+
+class Polygon {
+    constructor(type, map, vector_layer, paintMarkers, coordinates = null) {
+        this.type = type;
+        this.map = map;
+        this.vector_layer = vector_layer;
+        this.paintMarkers = paintMarkers;
+        this.overlays = []; // Массив для хранения всех оверлеев
+        this.isPolygonFinished = false;
+
+        if (coordinates) {
+            this.createPolygonFromCoordinates(coordinates);
+        } else {
+            this.initDrawInteraction();
+        }
+    }
+
+    initDrawInteraction() {
+        this.draw = new ol.interaction.Draw({
+            type: this.type,
+            stopClick: true
+        });
+
+        this.draw.on('drawstart', this.onDrawStart);
+        this.draw.on('drawend', this.onDrawEnd);
+        document.addEventListener('keydown', this.handleKeyDown);
+
+        this.map.addInteraction(this.draw);
+        MarkerManager.setCurrentPoly(this);
+    }
+
+    createPolygonFromCoordinates(coordinates) {
+        // Создаем объект полигона из координат
+        const polygon = new ol.geom.Polygon([coordinates]);
+        const feature = new ol.Feature(polygon);
+        feature.setId(`polygon-${Date.now()}`);
+        feature.getGeometry().on('change', this.onGeomChange);
+        this.vector_layer.getSource().addFeature(feature);
+        this.paintMarkers.push(feature);
+
+        // Добавляем оверлеи для каждого сегмента полигона
+        for (let i = 0; i < coordinates.length - 1; i++) {
+            const line = new ol.geom.LineString([coordinates[i], coordinates[i + 1]]);
+            const midpoint = this.calculateMidpoint(line.getCoordinates());
+            const distance = ol.Sphere.getLength(line);
+            const overlay = new Overlay(this.map).overlay;
+            this.overlays.push(overlay);
+            this.calDistance(overlay, midpoint, distance);
+        }
+
+        // Добавляем оверлей для площади
+        const area = ol.Sphere.getArea(polygon);
+        const centroid = this.calculateCentroid(polygon);
+        this.totalAreaOverlay = new Overlay(this.map).overlay;
+        this.calArea(this.totalAreaOverlay, centroid, area);
+
+        // Сохраняем состояние завершенного полигона
+        this.isPolygonFinished = true;
+    }
+
+    onDrawStart = (e) => {
+        try {
+            this.isPolygonFinished = false;
+            this.coordinates_length = 0;
+            this.totalAreaOverlay = new Overlay(this.map).overlay; // Оверлей для площади
+            e.feature.getGeometry().on('change', this.onGeomChange);
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    onDrawEnd = (e) => {
+        let lastOverlay = this.overlays.pop();
+        this.map.removeOverlay(lastOverlay);
+
+        e.feature.setId(`polygon-${Date.now()}`); // ID на основе времени
+        this.vector_layer.getSource().addFeature(e.feature);
+        this.paintMarkers.push(e.feature);
+
+        this.isPolygonFinished = true;
+        this.map.removeInteraction(this.draw);
+        new Polygon(this.type, this.map, this.vector_layer, this.paintMarkers);
+    }
+
+    onGeomChange = (e) => {
+        try {
+            const geomType = e.target.getType();
+            let coordinates = e.target.getCoordinates();
+
+            if (geomType === "Polygon") {
+                coordinates = coordinates[0]; // Работаем только с внешним контуром
+            }
+            
+            // Обновляем все существующие оверлеи
+            this.overlays.forEach((overlay, index) => {
+                if (index < coordinates.length - 1) {
+                    const line = new ol.geom.LineString([coordinates[index], coordinates[index + 1]]);
+                    const midpoint = this.calculateMidpoint(line.getCoordinates());
+                    const distance = ol.Sphere.getLength(line);
+                    this.calDistance(overlay, midpoint, distance);
+                }
+            });
+
+            // Для Polygon: расчёт площади
+            if (geomType === "Polygon") {
+                const polygon = new ol.geom.Polygon([coordinates]);
+                const area = ol.Sphere.getArea(polygon);
+                const centroid = this.calculateCentroid(e.target);
+                this.calArea(this.totalAreaOverlay, centroid, area);
+            }
+
+            // Добавление нового оверлея, если добавлена новая точка
+            if (coordinates.length > this.overlays.length + 1) {
+                const line = new ol.geom.LineString([coordinates[coordinates.length - 2], coordinates[coordinates.length - 1]]);
+                const overlay = new Overlay(this.map).overlay;
+                this.overlays.push(overlay);
+                const midpoint = this.calculateMidpoint(line.getCoordinates());
+                const distance = ol.Sphere.getLength(line);
+                this.calDistance(overlay, midpoint, distance);
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    calculateMidpoint = (coordinates) => {
+        const [x1, y1] = coordinates[0];
+        const [x2, y2] = coordinates[1];
+        return [(x1 + x2) / 2, (y1 + y2) / 2];
+    }
+
+    calculateCentroid = (geometry) => {
+        const jstsGeom = new jsts.io.OL3Parser().read(geometry);
+        const centroid = jstsGeom.getCentroid();
+        return [centroid.getX(), centroid.getY()];
+    }
+
+    calDistance = (overlay, overlayPosition, distance) => {
+        if (distance === 0) {
+            overlay.setPosition([0, 0]);
+        } else {
+            overlay.setPosition(overlayPosition);
+            if (distance >= 1000) {
+                overlay.element.innerHTML = (distance / 1000).toFixed(2) + ' km';
+            } else {
+                overlay.element.innerHTML = distance.toFixed(2) + ' m';
+            }
+        }
+    }
+
+    calArea = (overlay, overlayPosition, area) => {
+        if (area === 0) {
+            overlay.setPosition([0, 0]);
+        } else {
+            overlay.setPosition(overlayPosition);
+            if (area >= 10000) {
+                overlay.element.innerHTML = Math.round((area / 1000000) * 100) / 100 + ' km<sup>2</sup>';
+            } else {
+                overlay.element.innerHTML = Math.round(area * 100) / 100 + ' m<sup>2</sup>';
+            }
+        }
+    }
+
+    handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+            this.cancelDrawing();
+        }
+    };
+
+    cancelDrawing = () => {
+        if (!this.isPolygonFinished) {
+
+            this.map.removeInteraction(this.draw);
+            this.clearAllOverlays();
+
+            // Удаляем незавершённый полигон (если он уже добавлен в слой)
+            if (this.currentFeature) {
+                this.vector_layer.getSource().removeFeature(this.currentFeature);
+            }
+
+            document.removeEventListener('keydown', this.handleKeyDown);
+            //new Polygon(this.type, this.map, this.vector_layer);
+        }
+    };
+
+    clearAllOverlays = () => {
+        if (this.overlays.length > 2) this.map.removeOverlay(this.totalAreaOverlay);
+        this.overlays.forEach((overlay) => {
+            this.map.removeOverlay(overlay);
+        });
+        this.overlays = [];
+    }
+}
+
