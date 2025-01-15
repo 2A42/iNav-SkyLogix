@@ -22,3 +22,6 @@ yarn.lock
 /.vscode/
 .eslintrc.json
 /.project
+/.vs/iNavSkyLogix/v17/fileList.bin
+/.vs/iNavSkyLogix/v17/.suo
+/.vs/iNavSkyLogix/v17/DocumentLayout.json
