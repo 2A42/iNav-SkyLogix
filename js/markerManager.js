@@ -1,4 +1,3 @@
-//const ol = require('openlayers');
 const fs = require('fs');
 
 class MarkerManager {
@@ -20,12 +19,21 @@ class MarkerManager {
     static setCurrentPoly(poly) {
         this.currentPoly = poly;
     }
-    createPoly(type) {
-        let poly = new Polygon(type, this.map, this.vectorLayer, this.paintMarkers);
+    createPolyOrMeasure(type) {
+
+        let params = {
+            description: 'description poly1111111',
+            strokeColor: 'blue',
+            fillColor: 'white',
+            width: 16,
+            kind: 'polygon',
+        };
+
+        let poly = new Polygon(type, this.map, this.vectorLayer, this.paintMarkers);//, null, params);
         setCurrentPoly(poly);
     }
 
-    loadMarkersFile(/*paintMarkers, */filename) {
+    loadMarkersFile(filename) {
         fs.readFile(filename, 'utf8', (err, data) => {
 
             const parsedData = JSON.parse(data);
@@ -33,18 +41,16 @@ class MarkerManager {
                 return;
             }
 
+            let center = ol.proj.fromLonLat([parsedData.map.center.lon, parsedData.map.center.lat]);
+            this.map.getView().setCenter(center);
+            this.map.getView().setZoom(parsedData.map.zoom);
+
             parsedData.features.forEach(feature => {
-                // Пропуск маркеров с существующими ID
-                //const existingMarker = this.paintMarkers.find(marker => marker.getId() === feature.id);
-                //if (existingMarker) {
-                //    //console.log(`Маркер с ID ${feature.id} уже существует, пропускаем.`);
-                //    return;
-                //}
 
                 let newMarker;
                 const params = feature.properties || {};
 
-                if (feature.type === 'Point') {
+                if (params.kind === "drawMarker") {
                     const coords = ol.proj.fromLonLat([feature.coordinates.lon, feature.coordinates.lat]);
                     params.coord = coords;
 
@@ -55,80 +61,75 @@ class MarkerManager {
                         newMarker = this.createTextMarker(params);
                     }
                 }
-                else if (feature.type === 'LineString') {
+                else if (params.kind === "freeline") {
                     const coords = feature.coordinates.map(coord =>
                         ol.proj.fromLonLat([coord.lon, coord.lat])
                     );
                     params.coord = coords[0];
 
-                    // Начало рисования линии
                     newMarker = this.startDrawingLine(params);
-                    // Добавление оставшихся координат
                     coords.slice(1).forEach(coord => this.continueDrawingLine(coord));
                     this.stopDrawingLine();
                 }
 
-                else if (feature.type === 'Polygon') {
-                    const coords = feature.coordinates.map(ring =>
-                        ring.map(coord => ol.proj.fromLonLat([coord.lon, coord.lat]))
-                    );
+                else if (params.kind === 'polygon') {
 
-                    let poly = new Polygon(feature.type, this.map, this.vectorLayer, this.paintMarkers, coords[0]);
+                    let coords;
+
+                    if (feature.type === 'Polygon') {
+                        coords = feature.coordinates.map(ring =>
+                            ring.map(coord => ol.proj.fromLonLat([coord.lon, coord.lat]))
+                        );
+
+                        coords = coords[0];
+                    }
+                    else
+                        coords = feature.coordinates.map(coord =>
+                            ol.proj.fromLonLat([coord.lon, coord.lat])
+                        );
+
+                    let poly = new Polygon(feature.type, this.map, this.vectorLayer, this.paintMarkers, coords, params);
                     MarkerManager.setCurrentPoly(poly);
-
-                    //newMarker = new ol.Feature({
-                    //    geometry: new ol.geom.Polygon(coords),
-                    //    property: params,
-                    //});
-                    //this.vectorLayer.getSource().addFeature(newMarker);
-
-                    //polygonFeature.setId(feature.id);
-
-                    //this.paintMarkers.push(polygonFeature);
-
-                    // Пересчёт оверлеев
-                    //const polyInstance = new Polygon('Polygon', this.map, this.vectorLayer, this.paintMarkers);
-                    //polyInstance.recalculateOverlays(newMarker);
                 }
 
                 if (newMarker) {
-                    newMarker.setId(feature.id); // Восстановление ID из файла
-                    this.paintMarkers.push(newMarker); // Добавление в текущий список маркеров
+                    newMarker.setId(feature.id);
+                    this.paintMarkers.push(newMarker);
                     //this.vectorLayer.getSource().addFeature(newMarker);
                 }
             });
         });
     }
 
-    saveMarkersFile(/*paintMarkers, */filename) {
+    saveMarkersFile(filename) {
 
-        // Создаем объект данных
+        const center = ol.proj.toLonLat(this.map.getView().getCenter());
+        const zoom = this.map.getView().getZoom();
         const data = {
             version: "1.0.0",
-            //map: {
-            //    center: {
-            //        lon: Math.round(center[0] * 10000000) / 10000000,
-            //        lat: Math.round(center[1] * 10000000) / 10000000
-            //    },
-            //    zoom: zoom
-            //},
-            features: [] // Маркеры и линии
+            map: {
+                center: {
+                    lon: Math.round(center[0] * 10000000) / 10000000,
+                    lat: Math.round(center[1] * 10000000) / 10000000
+                },
+                zoom: zoom
+            },
+            features: []
         };
-
-        // Проходим по всем объектам paintMarkers
+        
         this.paintMarkers.forEach(marker => {
 
             let coords;
             const geometry = marker.getGeometry();
 
-            if (geometry.getType() === 'Point') { // Текстовый маркер
+            if (geometry.getType() === 'Point') { // Text Marker
                 const [lon, lat] = ol.proj.toLonLat(geometry.getCoordinates());
                 coords = {
                     lon: Math.round(lon * 10000000) / 10000000,
                     lat: Math.round(lat * 10000000) / 10000000
                 };
             }
-            else if (geometry.getType() === 'LineString') { // Линия
+            else if (geometry.getType() === 'LineString') { // Free line
                 coords = geometry.getCoordinates().map(coord => {
                     const [lon, lat] = ol.proj.toLonLat(coord);
                     return {
@@ -157,11 +158,11 @@ class MarkerManager {
             });
         });
 
-        // Сохранение в файл
+        // File Save
         const json = JSON.stringify(data, null, 2);
         fs.writeFile(filename, json, err => {
             if (err) {
-                return console.error(err);
+                return GUI.log(err);
             }
         });
     }
@@ -187,14 +188,6 @@ class MarkerManager {
         });
     }
 
-    /**
-     * Создать маркер с текстом
-     * @param {Array<number>} coordinate Координаты [x, y]
-     * @param {string} name Имя маркера
-     * @param {string} description Описание маркера
-     * @param {string} color Цвет текста маркера
-     * @param {number} fontSize Размер текста (в пикселях)
-     */
     createTextMarker(params) {
         const marker = new ol.Feature({
             geometry: new ol.geom.Point(params.coord),
@@ -207,21 +200,13 @@ class MarkerManager {
 
         this.setMarkerStyle(params);
         marker.setStyle(this.markerStyle);
-        marker.setId(`marker-${Date.now()}`); // ID на основе времени
+        marker.setId(`marker-${Date.now()}`);
         this.paintMarkers.push(marker);
         this.vectorLayer.getSource().addFeature(marker);
-        // this.vectorSource.addFeature(marker);
         return marker;
     }
 
-    /**
-     * Создать маркер с иконкой
-     * @param {Array<number>} coordinate Координаты [x, y]
-     * @param {string} iconUrl URL иконки
-     * @param {string} name Имя маркера
-     * @param {string} description Описание маркера
-     * @param {number} scale Масштаб иконки
-     */
+    // TODO
     createIconMarker(coordinate, iconUrl, name, description = '', scale = 1) {
         const marker = new ol.Feature({
             geometry: new ol.geom.Point(coordinate),
@@ -241,16 +226,11 @@ class MarkerManager {
             })
         );
 
-        marker.setId(`marker-${Date.now()}`); // ID на основе времени
+        marker.setId(`marker-${Date.now()}`);
         //this.vectorSource.addFeature(marker);
         return marker;
     }
-
-    /**
-     * Начать рисование линии
-     * @param {Array<number>} startCoordinate - начальная координата линии
-     * @returns {ol.Feature} - созданный объект линии
-     */
+    
     startDrawingLine(params) {
         this.isDrawing = true;
         this.currentLine = new ol.Feature({
@@ -260,17 +240,13 @@ class MarkerManager {
 
         this.setLineStyle(params);
         this.currentLine.setStyle(this.lineStyle);
-        this.currentLine.setId(`freeline-${Date.now()}`); // ID на основе времени
+        this.currentLine.setId(`freeline-${Date.now()}`);
         this.paintMarkers.push(this.currentLine);
         this.vectorLayer.getSource().addFeature(this.currentLine);
 
         return this.currentLine;
     }
-
-    /**
-     * Продолжить рисование линии
-     * @param {Array<number>} coordinate - текущая координата для добавления
-     */
+    
     continueDrawingLine(coordinate) {
         if (!this.isDrawing || !this.currentLine) return;
 
@@ -278,53 +254,27 @@ class MarkerManager {
         geometry.appendCoordinate(coordinate);
         this.vectorLayer.getSource().addFeature(this.currentLine);
     }
-
-    /**
-     * Завершить рисование линии
-     */
+   
     stopDrawingLine() {
         this.isDrawing = false;
         this.currentLine = null;
     }
-
-    /**
-     * Получить координаты маркера
-     * @param {ol.Feature} marker Маркер
-     * @returns {Array<number>} Координаты [x, y]
-     */
+    
     getMarkerCoordinates(marker) {
         return marker.getGeometry().getCoordinates();
     }
-
-    /**
-     * Задать координаты маркера
-     * @param {ol.Feature} marker Маркер
-     * @param {Array<number>} coordinates Новые координаты [x, y]
-     */
+    
     setMarkerCoordinates(marker, coordinates) {
         marker.getGeometry().setCoordinates(coordinates);
     }
-
-    /**
-     * Получить свойство маркера (имя, описание, цвет и т.д.)
-     * @param {ol.Feature} marker Маркер
-     * @param {string} property Название свойства
-     * @returns {*} Значение свойства
-     */
+    
     getMarkerProperty(marker, property) {
         return marker.get(property);
     }
-
-    /**
-     * Задать свойство маркера (имя, описание, цвет и т.д.)
-     * @param {ol.Feature} marker Маркер
-     * @param {string} property Название свойства
-     * @param {*} value Значение свойства
-     */
+    
     setMarkerProperty(marker, property, value) {
         marker.set(property, value);
-
-        // Если изменяется стиль текста, обновляем стиль
+        
         if (property === 'name' || property === 'color' || property === 'fontSize') {
             const style = marker.getStyle();
             if (style && style.getText()) {
@@ -352,21 +302,27 @@ class Overlay {
 }
 
 class Polygon {
-    constructor(type, map, vector_layer, paintMarkers, coordinates = null) {
+    constructor(type, map, vector_layer, paintMarkers, coordinates = null, properties = {
+        description: 'description poly',
+        strokeColor: '#0e97fa',
+        fillColor: 'rgba(0, 153, 255, 0.2)',
+        width: 4,
+        kind: 'polygon',
+    }) {
         this.type = type;
         this.map = map;
         this.vector_layer = vector_layer;
         this.paintMarkers = paintMarkers;
-        this.overlays = []; // Массив для хранения всех оверлеев
+        this.overlays = [];
+        this.properties = properties;
         this.isPolygonFinished = false;
 
-        if (coordinates) {
-            this.createPolygonFromCoordinates(coordinates);
-        } else {
-            this.initDrawInteraction();
-        }
+        // create polygon by existing coordinates or by mouse clicking at the map
+        if (coordinates) this.createPolygonFromCoordinates(coordinates);
+        else this.initDrawInteraction();
     }
 
+    // Start draw points for polygon
     initDrawInteraction() {
         this.draw = new ol.interaction.Draw({
             type: this.type,
@@ -382,15 +338,27 @@ class Polygon {
     }
 
     createPolygonFromCoordinates(coordinates) {
-        // Создаем объект полигона из координат
-        const polygon = new ol.geom.Polygon([coordinates]);
-        const feature = new ol.Feature(polygon);
-        feature.setId(`polygon-${Date.now()}`);
+        
+        const firstPoint = coordinates[0].map(coord => Math.round(coord));
+        const lastPoint = coordinates[coordinates.length - 1].map(coord => Math.round(coord));
+        const isClosed = (firstPoint[0] === lastPoint[0]) && (firstPoint[1] === lastPoint[1]);
+        let geometry;
+
+        if (isClosed) geometry = new ol.geom.Polygon([coordinates]);
+        else geometry = new ol.geom.LineString(coordinates);
+
+        const feature = new ol.Feature({
+            geometry: geometry,
+            property: this.properties
+        });
+        feature.setStyle(this.setStyle(this.properties));
+
+        feature.setId(`polygon - ${ Date.now() }`);
         feature.getGeometry().on('change', this.onGeomChange);
         this.vector_layer.getSource().addFeature(feature);
         this.paintMarkers.push(feature);
 
-        // Добавляем оверлеи для каждого сегмента полигона
+        // Load Overlays
         for (let i = 0; i < coordinates.length - 1; i++) {
             const line = new ol.geom.LineString([coordinates[i], coordinates[i + 1]]);
             const midpoint = this.calculateMidpoint(line.getCoordinates());
@@ -400,13 +368,14 @@ class Polygon {
             this.calDistance(overlay, midpoint, distance);
         }
 
-        // Добавляем оверлей для площади
-        const area = ol.Sphere.getArea(polygon);
-        const centroid = this.calculateCentroid(polygon);
-        this.totalAreaOverlay = new Overlay(this.map).overlay;
-        this.calArea(this.totalAreaOverlay, centroid, area);
-
-        // Сохраняем состояние завершенного полигона
+        // If it's a polygon then add overlay of square
+        if (isClosed) {
+            const area = ol.Sphere.getArea(geometry);
+            const centroid = this.calculateCentroid(geometry);
+            this.totalAreaOverlay = new Overlay(this.map).overlay;
+            this.calArea(this.totalAreaOverlay, centroid, area);
+        }
+        
         this.isPolygonFinished = true;
     }
 
@@ -414,24 +383,30 @@ class Polygon {
         try {
             this.isPolygonFinished = false;
             this.coordinates_length = 0;
-            this.totalAreaOverlay = new Overlay(this.map).overlay; // Оверлей для площади
+            this.totalAreaOverlay = new Overlay(this.map).overlay;
+
             e.feature.getGeometry().on('change', this.onGeomChange);
+            e.feature.setStyle(this.setStyle(this.properties));
+
         } catch (err) {
-            console.error(err);
+            GUI.log(err);
         }
     }
 
     onDrawEnd = (e) => {
+        
         let lastOverlay = this.overlays.pop();
-        this.map.removeOverlay(lastOverlay);
+        this.map.removeOverlay(lastOverlay); // bugfix with last overlay
 
-        e.feature.setId(`polygon-${Date.now()}`); // ID на основе времени
+        this.properties.kind = 'polygon';
+        e.feature.set('property', this.properties);
+        e.feature.setId(`polygon-${Date.now()}`);
         this.vector_layer.getSource().addFeature(e.feature);
         this.paintMarkers.push(e.feature);
 
         this.isPolygonFinished = true;
         this.map.removeInteraction(this.draw);
-        new Polygon(this.type, this.map, this.vector_layer, this.paintMarkers);
+        new Polygon(this.type, this.map, this.vector_layer, this.paintMarkers, null, this.properties);
     }
 
     onGeomChange = (e) => {
@@ -439,11 +414,9 @@ class Polygon {
             const geomType = e.target.getType();
             let coordinates = e.target.getCoordinates();
 
-            if (geomType === "Polygon") {
-                coordinates = coordinates[0]; // Работаем только с внешним контуром
-            }
+            if (geomType === "Polygon") coordinates = coordinates[0];
             
-            // Обновляем все существующие оверлеи
+            // Refresh Overlays
             this.overlays.forEach((overlay, index) => {
                 if (index < coordinates.length - 1) {
                     const line = new ol.geom.LineString([coordinates[index], coordinates[index + 1]]);
@@ -453,7 +426,7 @@ class Polygon {
                 }
             });
 
-            // Для Polygon: расчёт площади
+            // Calculate Square of polygon
             if (geomType === "Polygon") {
                 const polygon = new ol.geom.Polygon([coordinates]);
                 const area = ol.Sphere.getArea(polygon);
@@ -461,7 +434,7 @@ class Polygon {
                 this.calArea(this.totalAreaOverlay, centroid, area);
             }
 
-            // Добавление нового оверлея, если добавлена новая точка
+            // Add a new overlay for every new created line
             if (coordinates.length > this.overlays.length + 1) {
                 const line = new ol.geom.LineString([coordinates[coordinates.length - 2], coordinates[coordinates.length - 1]]);
                 const overlay = new Overlay(this.map).overlay;
@@ -471,22 +444,25 @@ class Polygon {
                 this.calDistance(overlay, midpoint, distance);
             }
         } catch (err) {
-            console.error(err);
+            GUI.log(err);
         }
     };
 
+    // Calculate midpoint of coords
     calculateMidpoint = (coordinates) => {
         const [x1, y1] = coordinates[0];
         const [x2, y2] = coordinates[1];
         return [(x1 + x2) / 2, (y1 + y2) / 2];
     }
 
+    // Calculate centroid by jsts lib
     calculateCentroid = (geometry) => {
         const jstsGeom = new jsts.io.OL3Parser().read(geometry);
         const centroid = jstsGeom.getCentroid();
         return [centroid.getX(), centroid.getY()];
     }
 
+    // Calculate pos and dist for Overlay
     calDistance = (overlay, overlayPosition, distance) => {
         if (distance === 0) {
             overlay.setPosition([0, 0]);
@@ -500,6 +476,7 @@ class Polygon {
         }
     }
 
+    // Calculate pos and square for Overlay
     calArea = (overlay, overlayPosition, area) => {
         if (area === 0) {
             overlay.setPosition([0, 0]);
@@ -525,7 +502,6 @@ class Polygon {
             this.map.removeInteraction(this.draw);
             this.clearAllOverlays();
 
-            // Удаляем незавершённый полигон (если он уже добавлен в слой)
             if (this.currentFeature) {
                 this.vector_layer.getSource().removeFeature(this.currentFeature);
             }
@@ -542,5 +518,19 @@ class Polygon {
         });
         this.overlays = [];
     }
-}
 
+    setStyle(params) {
+
+        let Style = new ol.style.Style({
+            stroke: new ol.style.Stroke({
+                color: params.strokeColor,
+                width: params.width
+            }),
+            fill: new ol.style.Fill({
+                color: params.fillColor
+            })
+        });
+
+        return Style;
+    }
+}

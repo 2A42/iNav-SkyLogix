@@ -402,7 +402,6 @@ TABS.mission_control.initialize = function (callback) {
     });
     var savedInteractions = [];
 
-    // Toolbar
     //var toolBar = ['#toggleDrawingModeButton', '#toggleBrushButton', '#togglePolyButton', '#editPolyButton'];
     //var state.isBrush = true;
     //var state.isPolygon = false;
@@ -411,6 +410,8 @@ TABS.mission_control.initialize = function (callback) {
     //var state.isDrawingMode = true;
     //var state.isDrawingLineNow = false;
 
+
+    // Toolbar
     var state = {
         isBrush: false,
         isPolygon: false,
@@ -420,11 +421,12 @@ TABS.mission_control.initialize = function (callback) {
         isDrawingLineNow: false
     };
 
-    // Создаем объект с ключами из toolBar и значениями из state
+    // Create buttons object with values from state
     var toolBar = {
         '#toggleDrawingModeButton': 'isDrawingMode',
         '#toggleBrushButton': 'isBrush',
         '#togglePolyButton': 'isPolygon',
+        '#toggleMeasureButton': 'isMeasureTool',
         '#editPolyButton': 'isEditPolygon',
     };
 
@@ -1196,6 +1198,8 @@ TABS.mission_control.initialize = function (callback) {
     }
 
     function removeAllWaypoints() {
+
+        // SkyLogix
         if (state.isDrawingMode) {
             //paintMarkers = [];
             map.removeLayer(markerVectorLayer);
@@ -1208,6 +1212,7 @@ TABS.mission_control.initialize = function (callback) {
             markerManagerObject = new MarkerManager(map, markerVectorLayer);
             manageToolBar('');
         }
+
         else {
             mission.reinit();
             refreshLayers();
@@ -1912,9 +1917,9 @@ TABS.mission_control.initialize = function (callback) {
             
             if (tempMarker.kind == "waypoint" || tempMarker.kind == "safehome" || tempMarker.kind == "home" ||
                 // SkyLogix
-                geometry.getType() == 'Polygon' || this.feature_.get('property')['kind'] == 'freeline' || this.feature_.get('property')['kind'] == 'drawMarker') {
+                geometry.getType() == 'LineString' || geometry.getType() == 'Polygon' || this.feature_.get('property')['kind'] == 'freeline' || this.feature_.get('property')['kind'] == 'drawMarker') {
 
-                GUI.log(geometry.getType());
+                //GUI.log(geometry.getType());
                 geometry.translate(deltaX, deltaY);
                 this.coordinate_[0] = evt.coordinate[0];
                 this.coordinate_[1] = evt.coordinate[1];
@@ -2150,7 +2155,7 @@ TABS.mission_control.initialize = function (callback) {
             if (!state.isDrawingMode || !state.isBrush) return;
 
             const coord = evt.coordinate;
-            evt.preventDefault(); // отключаем стандартное поведение карты
+            evt.preventDefault(); // turn off default map behaviour
 
             state.isDrawingLineNow = true;
             let Line = markerManagerObject.startDrawingLine({
@@ -2159,10 +2164,10 @@ TABS.mission_control.initialize = function (callback) {
                 width: 2,
                 description: 'Описание линии',
                 kind: 'freeline',
-                //lineDash: [5, 5], // Другая пунктирная линия
+                //lineDash: [5, 5],
             });
 
-            //if (evt.originalEvent.button === 2) { // Проверка на правую кнопку мыши (RMB)
+            //if (evt.originalEvent.button === 2) {
 
             //}
 
@@ -3286,14 +3291,9 @@ TABS.mission_control.initialize = function (callback) {
         // Callback for Brush
         /////////////////////////////////////////////
         $('#toggleBrushButton').on('click', function () {
-            // drawing button
             state.isBrush = !state.isBrush;
 
             if (state.isBrush) {
-                //state.isDrawingMode = true;
-
-                //$(this).attr('style', 'background-color: #ff6666;');
-                //$('#toggleDrawingModeButton').attr('style', 'background-color: #ff6666;');
                 manageToolBar('#toggleBrushButton');
 
                 map.getViewport().style.cursor = 'crosshair';
@@ -3305,23 +3305,51 @@ TABS.mission_control.initialize = function (callback) {
             }
         });
 
+        // SkyLogix
+        /////////////////////////////////////////////
+        // Callback for Poly
+        /////////////////////////////////////////////
         $('#togglePolyButton').on('click', function () {
 
             state.isPolygon = !state.isPolygon;
 
             if (state.isPolygon) {
-                //state.isBrush = false;
-                //state.isDrawingMode = true;
 
                 manageToolBar('#togglePolyButton');
-                removeInteractions();
-                //$(this).attr('style', 'background-color: #ff6666;');
-                //$('#toggleDrawingModeButton').attr('style', 'background-color: #ff6666;');
 
                 //Remove map interactions except default interactions
-                //let geomType = "LineString";
-                let geomType = "Polygon";
-                markerManagerObject.createPoly(geomType);
+                removeInteractions();
+                
+                const geomType = "Polygon";
+                markerManagerObject.createPolyOrMeasure(geomType);
+            }
+            else {
+                $(this).attr('style', 'background-color: #66ff66;');
+
+                MarkerManager.getCurrentPoly().cancelDrawing();
+
+                // Remove current and restore previous interactions with map
+                removeInteractions();
+                savedInteractions.forEach(interaction => {
+                    map.addInteraction(interaction);
+                });
+            }
+        });
+
+        // SkyLogix
+        /////////////////////////////////////////////
+        // Callback for Measure
+        /////////////////////////////////////////////
+        $('#toggleMeasureButton').on('click', function () {
+
+            state.isMeasureTool = !state.isMeasureTool;
+
+            if (state.isMeasureTool) {
+                manageToolBar('#toggleMeasureButton');
+                removeInteractions();
+
+                let geomType = "LineString";
+                markerManagerObject.createPolyOrMeasure(geomType);
             }
             else {
                 $(this).attr('style', 'background-color: #66ff66;');
@@ -3335,16 +3363,19 @@ TABS.mission_control.initialize = function (callback) {
             }
         });
 
+        // SkyLogix
+        /////////////////////////////////////////////
+        // Callback for Editing Poly
+        /////////////////////////////////////////////
         $('#editPolyButton').on('click', function (e) {
 
             state.isEditPolygon = !state.isEditPolygon;
 
             if (state.isEditPolygon) {
                 
-                //$(this).attr('style', 'background-color: #ff6666;');
-                //$('#toggleDrawingModeButton').attr('style', 'background-color: #ff6666;');
                 manageToolBar('#editPolyButton');
-                                // Defining Dynamic Styles
+
+                // Defining Dynamic Styles when feature selected
                 let dynamicStyle = {
                   'Point': new ol.style.Style({
                     image: new ol.style.Circle({
@@ -3375,7 +3406,6 @@ TABS.mission_control.initialize = function (callback) {
                     })
                   })
                 }
-                                //Remove previous interactions
                 removeInteractions();
 
                 //Select Features
@@ -3413,7 +3443,7 @@ TABS.mission_control.initialize = function (callback) {
             if (state.isDrawingMode) {
 
                 nwdialog.openFileDialog('.json', function (result) {
-                    markerManagerObject.loadMarkersFile(/*paintMarkers, */result);
+                    markerManagerObject.loadMarkersFile(result);
                     //refreshPaintMarkers();
                 })
                 return;
@@ -3431,7 +3461,7 @@ TABS.mission_control.initialize = function (callback) {
             nwdialog.setContext(document);
 
             if (state.isDrawingMode) nwdialog.saveFileDialog('Drawing Markers file', '.json', function (result) {
-                markerManagerObject.saveMarkersFile(/*paintMarkers, */result);
+                markerManagerObject.saveMarkersFile(result);
                 GUI.log('Markers saved');
             })
 
